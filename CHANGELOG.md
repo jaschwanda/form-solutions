@@ -2,6 +2,6 @@
 
 Form-Solutions plugin changes are logged here using <a href="http://semver.org/">Semantic Versioning</a>.
 
-## 1.0.0 (2018-030-25) ##
+## 1.0.0 (2018-03-25) ##
 * Initial release.
 
