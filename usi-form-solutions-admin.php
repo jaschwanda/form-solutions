@@ -4,10 +4,10 @@ defined('ABSPATH') or die('Accesss not allowed.');
 
 final class USI_Form_Solutions_Admin {
 
-   const VERSION = '1.0.0 (2018-03-25)';
+   const VERSION = '1.1.1 (2019-09-30)';
 
-   public static $edit_preferences     = false;
-   public static $view_settings  = false;
+   public static $edit_preferences = false;
+   public static $view_settings    = false;
 
    function __construct() {
       add_action('admin_menu', array($this, 'action_admin_menu'));

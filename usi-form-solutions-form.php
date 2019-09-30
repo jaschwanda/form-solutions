@@ -22,9 +22,10 @@ Notes:
 
 class USI_Form_Solutions_Form {
 
-   const VERSION = '1.0.3 (2018-04-21)';
+   const VERSION = '1.1.1 (2019-09-30)';
 
    protected $action       =  null;
+   protected $debug        =  null;
    protected $error_text   =  null;
    protected $fatal_error  =  null;
    protected $first_page   = 'page 1';
@@ -34,14 +35,14 @@ class USI_Form_Solutions_Form {
    protected $html_class   =  null;
    protected $html_format  =  true;
    protected $html_id      =  null;
-   protected $lock_good    =  true; // Submission tamper free and originate from this host;
-   protected $lock_info    =  null; // IP:DateTime:UniqueValue of last submitted form;
-   protected $lock_name    =  null; // $_REQUEST name of lock_text value;
-   protected $lock_salt    =  null; // Hashing salt, should be unique for each form;
-   protected $lock_text    =  null; // lock_info hashed with lock_salt;
-   protected $lock_time    =  0;    // Time in seconds lock valid, 0 means always;
+   protected $lock_fail    =  null;  // Submission failed [IP|DATE|HASH];
+   protected $lock_info    =  null;  // IP:Date:UniqueID of last submitted form;
+   protected $lock_name    =  null;  // $_REQUEST name of lock_text value;
+   protected $lock_salt    =  null;  // Hashing salt, should be unique for each form;
+   protected $lock_text    =  null;  // lock_info hashed with lock_salt;
+   protected $lock_time    = 'PT10S'; // Time lock valid in DateInterval format, default 1 hour;
    protected $method       = 'POST';
-   protected $name         = 'form';// $prefix_name.$name should be unique and less than 32 characters;
+   protected $name         = 'form';
    protected $pages        =  array();
    protected $prefix_class =  null;
    protected $prefix_id    =  null;
@@ -49,23 +50,34 @@ class USI_Form_Solutions_Form {
    protected $target       =  null;
 
    function __construct() {
-      // The lock info can be up to 61 characters long;
-      //          1         2         3         4         5         6
-      // 1234567890123456789012345678901234567890123456789012345678901
-      // |-------------IPv6 ------------|:|--DateTime--|:|UniqueValue|
       $this->lock_name = $this->prefix_name . 'lock';
-      $remote_addr  = $_SERVER['REMOTE_ADDR'];
+      $current_time    = new DateTime();
+      $remote_addr     = bin2hex(inet_pton($_SERVER['REMOTE_ADDR']));
       if (!empty($_REQUEST[$this->lock_name])) {
-         $lock_text = $_REQUEST[$this->lock_name];
-         $offset    = strrpos($lock_text, ':');
-         $this->lock_info = substr($lock_text, 0, $offset);
-         $this->lock_good = sha1($this->lock_info . $this->lock_salt) == substr($lock_text, $offset + 1);
+         $lock_ip = strtok($_REQUEST[$this->lock_name], ':');
+         if ($lock_ip != $remote_addr) {
+            $this->lock_fail = 'IP';
+         } else {
+            $lock_date = strtok(':');
+            if ($lock_date < $current_time->format('YmdHis')) {
+               $this->lock_fail = 'DATE';
+            } else {
+               $lock_unique = strtok(':');
+               $lock_hash   = strtok(':');
+               $this->lock_info = $lock_ip . ':' . $lock_date . ':' . $lock_unique;
+               if (sha1($this->lock_info . $this->lock_salt) !== $lock_hash) $this->fail = 'BOGUS';
+            }
+         }
       }
-      $info = bin2hex(inet_pton($remote_addr)) . date(':YmdHis:') . strtoupper(uniqid());
-      $hash = sha1($info . $this->lock_salt);
-      $this->lock_text = $info . ':' . $hash;
+      $current_time->add(new DateInterval($this->lock_time));
+      $info = $remote_addr . $current_time->format(':YmdHis:') . strtoupper(uniqid());
+      $this->lock_text = $info . ':' . sha1($info . $this->lock_salt);
    } // __construct();
-   
+
+   function __destruct() {
+      if ($this->debug) usi_log($this->debug);
+   } // __destruct();
+
    function process() {
 
       $page_after = $page_before = '';

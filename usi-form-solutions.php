@@ -6,7 +6,7 @@ defined('ABSPATH') or die('Accesss not allowed.');
 Plugin Name: Form-Solutions
 Plugin URI:  https://github.com/jaschwanda/form-solutions
 Description: The Form-Solutions plugin extends WordPress enabling the creation and management of forms. The Form-Solutions plugin is developed and maintained by Universal Solutions.
-Version:     1.0.0 (2018-03-25)
+Version:     1.1.1 (2019-09-30)
 Author:      Jim Schwanda
 Author URI:  https://www.usi2solve.com/leader
 Text Domain: usi-form-solutions
@@ -27,11 +27,10 @@ You should have received a copy of the GNU General Public License along with For
 */
 
 require_once('usi-form-solutions-form.php'); 
-require_once('usi-settings/usi-settings.php'); 
 
 class USI_Form_Solutions {
 
-   const VERSION = '1.0.0 (2018-03-25)';
+   const VERSION = '1.1.1 (2019-09-30)';
    const NAME = 'Form-Solutions';
    const PREFIX = 'usi-form';
    const TEXTDOMAIN = 'usi-form-solutions';
@@ -41,20 +40,21 @@ class USI_Form_Solutions {
       'Edit-Preferences' => 'Edit preferences',
    );
 
+   public static $options = array();
+
    function __construct() {
-      if (empty(USI_Settings::$options[self::PREFIX])) {
-         global $wpdb;
+      if (empty(USI_Form_Solutions::$options)) {
          $defaults['preferences']['file-location'] = 'plugin';
          $defaults['preferences']['shortcode-prefix'] = 'form';
-         USI_Settings::$options[self::PREFIX] = get_option(self::PREFIX . '-options', $defaults);
+         USI_Form_Solutions::$options = get_option(self::PREFIX . '-options', $defaults);
       }
-      $shortcode_prefix   = USI_Settings::$options[self::PREFIX]['preferences']['shortcode-prefix'];
+      $shortcode_prefix   = USI_Form_Solutions::$options['preferences']['shortcode-prefix'];
       add_shortcode($shortcode_prefix, array($this, 'shortcode'));
    } // __construct();
 
    static function get_forms_folder() {
-      if (!empty(USI_Settings::$options[self::PREFIX]['preferences']['file-location'])) {
-         return(USI_Settings::$options[self::PREFIX]['preferences']['file-location']);
+      if (!empty(USI_Form_Solutions::$options['preferences']['file-location'])) {
+         return(USI_Form_Solutions::$options['preferences']['file-location']);
       }
       return('plugin');
    } // get_forms_folder();
@@ -95,7 +95,10 @@ new USI_Form_Solutions();
 if (is_admin() && !defined('WP_UNINSTALL_PLUGIN')) {
    require_once('usi-form-solutions-admin.php');
    require_once('usi-form-solutions-install.php');
-   require_once('usi-form-solutions-settings.php'); 
+   if (is_dir(plugin_dir_path(__DIR__) . 'usi-wordpress-solutions')) {
+      require_once('usi-form-solutions-settings.php'); 
+   } else {
+      add_action('admin_notices', array('USI_Form_Solutions', 'action_admin_notices'));
+   }
 }
-
 // --------------------------------------------------------------------------------------------------------------------------- // ?>
