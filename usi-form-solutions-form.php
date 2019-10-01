@@ -1,15 +1,18 @@
 <?php // ------------------------------------------------------------------------------------------------------------------------ //
 
-// add multple submit protection;
-// add leave hiden field blank field otherwise robot submit;
-
+// Add default value for new form;
 // Add page readonly/edit switch for form;
+// Add database save/restore;
+
 // Add default validation function;
 // add e-mail validation and domain name check;
 // add help message, regexp validation;
 // add password field;
 // add file upload field;
 // add phone, zipcode, date validation
+
+// add multple submit protection;
+// add leave hiden field blank field otherwise robot submit;
 
 /*
 
@@ -22,9 +25,10 @@ Notes:
 
 class USI_Form_Solutions_Form {
 
-   const VERSION = '1.1.1 (2019-09-30)';
+   const VERSION = '1.1.2 (2019-10-01)';
 
    protected $action       =  null;
+   protected $connection   =  null;
    protected $debug        =  null;
    protected $error_text   =  null;
    protected $fatal_error  =  null;
@@ -39,17 +43,20 @@ class USI_Form_Solutions_Form {
    protected $lock_info    =  null;  // IP:Date:UniqueID of last submitted form;
    protected $lock_name    =  null;  // $_REQUEST name of lock_text value;
    protected $lock_salt    =  null;  // Hashing salt, should be unique for each form;
-   protected $lock_text    =  null;  // lock_info hashed with lock_salt;
-   protected $lock_time    = 'PT10S'; // Time lock valid in DateInterval format, default 1 hour;
+   protected $lock_text    =  null;  // Lock_info hashed with lock_salt;
+   protected $lock_time    = 'PT1H'; // Time lock valid in DateInterval format, default 1 hour;
    protected $method       = 'POST';
    protected $name         = 'form';
    protected $pages        =  array();
    protected $prefix_class =  null;
    protected $prefix_id    =  null;
    protected $prefix_name  =  null;
+   protected $queries      =  null;
    protected $target       =  null;
 
-   function __construct() {
+   function __construct($connection) {
+      $this->connection = $connection;
+      $this->debug .= print_r($_REQUEST, true) . PHP_EOL;
       $this->lock_name = $this->prefix_name . 'lock';
       $current_time    = new DateTime();
       $remote_addr     = bin2hex(inet_pton($_SERVER['REMOTE_ADDR']));
@@ -68,6 +75,8 @@ class USI_Form_Solutions_Form {
                if (sha1($this->lock_info . $this->lock_salt) !== $lock_hash) $this->fail = 'BOGUS';
             }
          }
+      } else if ($this->queries) {
+         $this->get_dbs_values($queries);
       }
       $current_time->add(new DateInterval($this->lock_time));
       $info = $remote_addr . $current_time->format(':YmdHis:') . strtoupper(uniqid());
@@ -77,6 +86,45 @@ class USI_Form_Solutions_Form {
    function __destruct() {
       if ($this->debug) usi_log($this->debug);
    } // __destruct();
+
+   function get_dbs_values() {
+      @ $dbs = new mysqli($this->connection['host'], $this->connection['user'], $this->connection['hash'], $this->connection['name']);
+      if ($dbs->connect_errno) $this->debug .= 'get_dbs_values:error=' . $dbs->connect_error;
+      foreach ($this->queries as $sql) {
+         $this->debug .= 'get_dbs_values:sql=' . $sql . PHP_EOL;
+         $results = $dbs->query($sql);
+         if ($dbs->errno) $this->debug .= 'get_dbs_values:error=' . $dbs->error . PHP_EOL;
+         if ($dbs->field_count) {
+            $row = $results->fetch_assoc();
+            $this->debug .= 'get_dbs_values:row=' . print_r($row, true) . PHP_EOL;
+            foreach ($this->pages as $page_name => & $page) {
+               foreach ($page['fields'] as $field_name => & $field) {
+                  if (!empty($field['dbs_field'])) {
+                     $dbs_field = $field['dbs_field'];
+                     if (!empty($row[$dbs_field])) {
+                        switch ($field['sub_type']) {
+                        case 'checkbox':
+                           break;
+                        case 'radio':
+                           break;
+                        case 'hidden':
+                        case 'password':
+                        case 'select':
+                        case 'submit':
+                        case 'text':
+                        case 'textarea':
+                           $field['value'] = $row[$field['dbs_field']];
+                           break;
+                        }
+                     }
+                  }
+               }
+            }
+         }
+         $results->close();
+      }
+      $dbs->close();
+   } // get_dbs_values();
 
    function process() {
 
@@ -130,8 +178,8 @@ class USI_Form_Solutions_Form {
                                  $next_page = $field['next_page'];
                                  break 2;
                               } 
-                           } else if (!empty($field['jump_page'])) {
-                              $next_page = $field['jump_page'];
+                           } else if (!empty($field['next_page'])) {
+                              $next_page = $field['next_page'];
                               break 2;
                            }
                         }
@@ -300,10 +348,6 @@ class USI_Form_Solutions_Form {
 
    } // process();
 
-   function validate() {
-
-   } // validate();
-
    function select_integer($field) {
       $list = array();
       if (!empty($field['missing_index']) && !empty($field['missing_text'])) $list[$field['missing_index']] = $field['missing_text'];
@@ -313,7 +357,7 @@ class USI_Form_Solutions_Form {
       return($list);
    } // select_integer();
 
-   function select_month($missing_index = '00', $missing_text = '-- Select Month --') {
+   public function select_month($missing_index = '00', $missing_text = '-- Select Month --') {
       return(array(
          $missing_index => $missing_text,
          '01' => 'January',
@@ -331,7 +375,7 @@ class USI_Form_Solutions_Form {
       ));
    } // select_month();
    
-   function select_state($missing_index = '--', $missing_text = '-- Select State --') {
+   public function select_state($missing_index = '--', $missing_text = '-- Select State --') {
       return(array(
          $missing_index => $missing_text,
          'AL' => 'Alabama', 
@@ -390,6 +434,10 @@ class USI_Form_Solutions_Form {
          'AP' => 'Armed Forces-Pacific',
       ));
    } // select_state();
+
+   function validate() {
+
+   } // validate();
 
 } // Class USI_Form_Solutions_Form;
 

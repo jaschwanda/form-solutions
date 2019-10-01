@@ -6,7 +6,7 @@ defined('ABSPATH') or die('Accesss not allowed.');
 Plugin Name: Form-Solutions
 Plugin URI:  https://github.com/jaschwanda/form-solutions
 Description: The Form-Solutions plugin extends WordPress enabling the creation and management of forms. The Form-Solutions plugin is developed and maintained by Universal Solutions.
-Version:     1.1.1 (2019-09-30)
+Version:     1.1.2 (2019-10-01)
 Author:      Jim Schwanda
 Author URI:  https://www.usi2solve.com/leader
 Text Domain: usi-form-solutions
@@ -30,7 +30,7 @@ require_once('usi-form-solutions-form.php');
 
 class USI_Form_Solutions {
 
-   const VERSION = '1.1.1 (2019-09-30)';
+   const VERSION = '1.1.2 (2019-10-01)';
    const NAME = 'Form-Solutions';
    const PREFIX = 'usi-form';
    const TEXTDOMAIN = 'usi-form-solutions';
@@ -80,7 +80,7 @@ class USI_Form_Solutions {
          return('Cannot find file <i>"' . $path . '"</i>');
       }
 
-      $form = new $class();
+      $form = new $class(array('host' => DB_HOST, 'user' => DB_USER, 'hash' => DB_PASSWORD, 'name' =>DB_NAME));
 
       if (!empty($attributes['dump'])) usi_log(__METHOD__ . ':class=' . print_r($form, true));
 
