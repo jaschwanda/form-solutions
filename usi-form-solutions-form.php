@@ -90,9 +90,20 @@ class USI_Form_Solutions_Form {
    function get_dbs_values() {
       @ $dbs = new mysqli($this->connection['host'], $this->connection['user'], $this->connection['hash'], $this->connection['name']);
       if ($dbs->connect_errno) $this->debug .= 'get_dbs_values:error=' . $dbs->connect_error;
-      foreach ($this->queries as $sql) {
+      foreach ($this->queries as $query) {
+         if (!empty($query['sql'])) {
+            $sql = $query['sql'];
+         } else if (!empty($query['table'])) {
+            $sql = 'SELECT * FROM `' . $query['table'] . '`';
+            $operator = ' WHERE (';
+            foreach ($query['key'] as $key => $value) {
+               $sql .= $operator . '(`' . $key . '` = "' . $dbs->escape_string($value) . '")';
+               $operator = ' AND ';
+            }
+            $sql .= ') LIMIT 1';
+         }
          $this->debug .= 'get_dbs_values:sql=' . $sql . PHP_EOL;
-         $results = $dbs->query($sql);
+         $results = $dbs->query($sql, MYSQLI_USE_RESULT);
          if ($dbs->errno) $this->debug .= 'get_dbs_values:error=' . $dbs->error . PHP_EOL;
          if ($dbs->field_count) {
             $row = $results->fetch_assoc();
@@ -121,10 +132,16 @@ class USI_Form_Solutions_Form {
                }
             }
          }
-         $results->close();
+         @ $results->close();
       }
-      $dbs->close();
+      @ $dbs->close();
    } // get_dbs_values();
+
+   function dbs_save() {
+      $fields =& $this->pages['test']['fields'];
+      $fields['test']['html'] = 'There was an error';
+      return(false);
+} // dbs_save();
 
    function process() {
 
