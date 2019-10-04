@@ -1,8 +1,11 @@
 <?php // ------------------------------------------------------------------------------------------------------------------------ //
 
+// Error message if cannot find record;
+// REsolve if we can use passed in sql, must resolve the primary key build;
+// Add database insert;
+
 // Add default value for new form;
 // Add page readonly/edit switch for form;
-// Add database save/restore;
 
 // Add default validation function;
 // add e-mail validation and domain name check;
@@ -29,13 +32,15 @@ class USI_Form_Solutions_Form {
 
    protected $action       =  null;
    protected $connection   =  null;
+   protected $current_page =  null;
    protected $debug        =  null;
+   protected $dbs          =  null;
    protected $error_text   =  null;
    protected $fatal_error  =  null;
    protected $first_page   = 'page 1';
    protected $indent       =  0;
-   protected $html_after   =  null;
-   protected $html_before  =  null;
+   protected $html_after   = '{i}<!-- Form ------------------------------------------------------------->{n}';
+   protected $html_before  = '{n}{i}<!-- Form ------------------------------------------------------------->{n}';
    protected $html_class   =  null;
    protected $html_format  =  true;
    protected $html_id      =  null;
@@ -47,6 +52,8 @@ class USI_Form_Solutions_Form {
    protected $lock_time    = 'PT1H'; // Time lock valid in DateInterval format, default 1 hour;
    protected $method       = 'POST';
    protected $name         = 'form';
+   protected $page_edit    =  false;
+   protected $page_save    =  false;
    protected $pages        =  array();
    protected $prefix_class =  null;
    protected $prefix_id    =  null;
@@ -75,8 +82,11 @@ class USI_Form_Solutions_Form {
                if (sha1($this->lock_info . $this->lock_salt) !== $lock_hash) $this->fail = 'BOGUS';
             }
          }
+         if ($this->page_edit) {
+            $this->dbs_values_get($queries);
+         }
       } else if ($this->queries) {
-         $this->get_dbs_values($queries);
+         $this->dbs_values_get($queries);
       }
       $current_time->add(new DateInterval($this->lock_time));
       $info = $remote_addr . $current_time->format(':YmdHis:') . strtoupper(uniqid());
@@ -85,29 +95,59 @@ class USI_Form_Solutions_Form {
 
    function __destruct() {
       if ($this->debug) usi_log($this->debug);
+      $this->dbs_close();
    } // __destruct();
 
-   function get_dbs_values() {
-      @ $dbs = new mysqli($this->connection['host'], $this->connection['user'], $this->connection['hash'], $this->connection['name']);
-      if ($dbs->connect_errno) $this->debug .= 'get_dbs_values:error=' . $dbs->connect_error;
-      foreach ($this->queries as $query) {
-         if (!empty($query['sql'])) {
-            $sql = $query['sql'];
-         } else if (!empty($query['table'])) {
-            $sql = 'SELECT * FROM `' . $query['table'] . '`';
-            $operator = ' WHERE (';
-            foreach ($query['key'] as $key => $value) {
-               $sql .= $operator . '(`' . $key . '` = "' . $dbs->escape_string($value) . '")';
+   function dbs_close() {
+      if ($this->dbs) {
+         @ $this->dbs->close();
+         $this->dbs = null;
+      }
+   } // dbs_close();
+
+   function dbs_save() {
+      $fields =& $this->pages['test']['fields'];
+      $fields['test']['html'] = 'There was an error';
+      $status = $this->dbs_values_update();
+/* update status based on dbs status; */
+      return(false);
+   } // dbs_save();
+
+   function dbs_table_update($page, $queries) {
+      foreach ($page['fields'] as $field_name => & $field) {
+         if ('skip' == ($type = $field['type'])) continue;
+// no old value if form is new input;
+         if (!empty($field['old_value']) && ($field['value'] != $field['old_value'])) {
+            $table = $field['dbs_table'];
+            $queries[$table] .= (!empty($queries[$table]) ? ', ' : '') . '`' . $field['dbs_field'] . '` = "' . $this->dbs->escape_string($field['value']) . '"';
+         }
+      }
+      return($queries);
+   } // dbs_table_update();
+
+   function dbs_values_get() {
+      if (!$this->dbs) $this->dbs = new mysqli($this->connection['host'], $this->connection['user'], $this->connection['hash'], $this->connection['name']);
+      if ($this->dbs->connect_errno) $this->debug .= 'dbs_values_get:error=' . $this->dbs->connect_error;
+      foreach ($this->queries as $table => $key) {
+         if ('sql' == $table) {
+            $sql = $table;
+         } else {
+            $operator = ' WHERE ';
+            $where    = null;
+            foreach ($key as $field => $value) {
+               $where   .= $operator . '(`' . $field . '` = "' . $this->dbs->escape_string($value) . '")';
                $operator = ' AND ';
             }
-            $sql .= ') LIMIT 1';
+            $sql = 'SELECT * FROM `' . $table . '`' . $where . ' LIMIT 1';
+            $this->debug .= 'dbs_values_get:where=' . $where . PHP_EOL;
          }
-         $this->debug .= 'get_dbs_values:sql=' . $sql . PHP_EOL;
-         $results = $dbs->query($sql, MYSQLI_USE_RESULT);
-         if ($dbs->errno) $this->debug .= 'get_dbs_values:error=' . $dbs->error . PHP_EOL;
-         if ($dbs->field_count) {
+         $this->where[$table] = $where;
+         $this->debug .= 'dbs_values_get:sql=' . $sql . PHP_EOL;
+         $results = $this->dbs->query($sql, MYSQLI_USE_RESULT);
+         if ($this->dbs->errno) $this->debug .= 'dbs_values_get:error=' . $this->dbs->error . PHP_EOL;
+         if ($this->dbs->field_count) {
             $row = $results->fetch_assoc();
-            $this->debug .= 'get_dbs_values:row=' . print_r($row, true) . PHP_EOL;
+            $this->debug .= 'dbs_values_get:row=' . print_r($row, true) . PHP_EOL;
             foreach ($this->pages as $page_name => & $page) {
                foreach ($page['fields'] as $field_name => & $field) {
                   if (!empty($field['dbs_field'])) {
@@ -124,7 +164,7 @@ class USI_Form_Solutions_Form {
                         case 'submit':
                         case 'text':
                         case 'textarea':
-                           $field['value'] = $row[$field['dbs_field']];
+                           $field['value'] = $field['old_value'] = $row[$field['dbs_field']];
                            break;
                         }
                      }
@@ -134,14 +174,25 @@ class USI_Form_Solutions_Form {
          }
          @ $results->close();
       }
-      @ $dbs->close();
-   } // get_dbs_values();
+   } // dbs_values_get();
 
-   function dbs_save() {
-      $fields =& $this->pages['test']['fields'];
-      $fields['test']['html'] = 'There was an error';
-      return(false);
-} // dbs_save();
+   function dbs_values_update() {
+      $queries = array();
+      if ($this->page_save) {
+         $queries = $this->dbs_table_update($this->pages[$this->current_page], $queries);
+      } else {
+         foreach ($this->pages as $page_name => $page) {
+            $queries = $this->dbs_table_update($page, $queries);
+         }
+      }
+      foreach ($this->where as $table => $where) {
+         if (!empty($queries[$table])) {
+            $sql = 'UPDATE `' . $table . '` SET ' . $sql . $queries[$table] . $where;
+            $results = $this->dbs->query($sql);
+            $this->debug .= 'dbs_table_update:sql=' . $sql . ' results=' . $results . PHP_EOL;
+         }
+      }
+   } // dbs_values_update();
 
    function process() {
 
@@ -159,10 +210,10 @@ class USI_Form_Solutions_Form {
       try {
 
          $current_name = $this->prefix_name . 'page';
-         $current_page = !empty($_REQUEST[$current_name]) ? strip_tags($_REQUEST[$current_name]) : null;
+         $this->current_page = !empty($_REQUEST[$current_name]) ? strip_tags($_REQUEST[$current_name]) : null;
    
-         if (!$current_page) {
-            $current_page = $this->first_page;
+         if (!$this->current_page) {
+            $this->current_page = $this->first_page;
          } else {
             // Use & to create references so that the field['value'] can be set;
             foreach ($this->pages as $page_name => & $page) {
@@ -174,7 +225,9 @@ class USI_Form_Solutions_Form {
                   case 'select':
                   case 'textarea':
                      $html_name = $this->prefix_name . (empty($field['html_name']) ? $field_name : $field['html_name']);
-                     $field['value'] = (!empty($_REQUEST[$html_name]) ? (empty($field['nostriptags']) ? strip_tags($_REQUEST[$html_name]) : $_REQUEST[$html_name]) : null);
+                     $value = !empty($_REQUEST[$html_name]) ? $_REQUEST[$html_name] : null;
+                     if (empty($field['notrim'])) $value = trim($value);
+                     $field['value'] = empty($field['nostriptags']) ? strip_tags($value) : $value;
                      break;
                   }
                }
@@ -184,7 +237,7 @@ class USI_Form_Solutions_Form {
             unset($page);
             $next_page = null;
             foreach ($this->pages as $page_name => $page) {
-               if ($page_name == $current_page) {
+               if ($page_name == $this->current_page) {
                   foreach ($page['fields'] as $field_name => $field) {
                      if ('skip' == ($type = $field['type'])) continue;
                      if ((('input' == $type) && ('submit' == $field['sub_type'])) || ('button' == $type)) {
@@ -205,7 +258,7 @@ class USI_Form_Solutions_Form {
                   break;
                }
             }
-            if ($next_page) $current_page = $next_page;
+            if ($next_page) $this->current_page = $next_page;
          }
    
          $html = 
@@ -215,10 +268,10 @@ class USI_Form_Solutions_Form {
             ' method="' . $this->method . '" name="' . $this->prefix_name . $this->name . '"' .
             ($this->target ? ' target="' . $this->target . '"': '') . '>' . $n .
             $i2 . '<input name="' . $this->lock_name . '" type="hidden" value="' . $this->lock_text . '" />' . $n .
-            $i2 . '<input name="' . $current_name . '" type="hidden" value="' . $current_page . '" />' . $n;
+            $i2 . '<input name="' . $current_name . '" type="hidden" value="' . $this->current_page . '" />' . $n;
    
          foreach ($this->pages as $page_name => $page) {
-            if ($page_name != $current_page) {
+            if ($page_name != $this->current_page) {
                foreach ($page['fields'] as $field_name => $field) {
                   if ('skip' == ($type = $field['type'])) continue;
                   switch ($type) {
@@ -236,7 +289,7 @@ class USI_Form_Solutions_Form {
          }
    
          foreach ($this->pages as $page_name => $page) {
-            if ($page_name == $current_page) {
+            if ($page_name == $this->current_page) {
                $page_before = (!empty($page['html_before']) ? $page['html_before'] : '');
                $page_after  = (!empty($page['html_after'])  ? $page['html_after']  : '');
                foreach ($page['fields'] as $field_name => $field) {
