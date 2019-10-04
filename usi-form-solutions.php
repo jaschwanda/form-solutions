@@ -67,6 +67,8 @@ class USI_Form_Solutions {
       $file  = 'forms/' . $class . '.php';
       $class = str_replace('-', '_', $class);
 
+      $html  = 'There was an unexpected error.';
+
       switch ($location = USI_Form_Solutions::get_forms_folder()) {
       default: 
       case 'plugin': $path = plugin_dir_path(__FILE__) . $file; break;
@@ -74,17 +76,29 @@ class USI_Form_Solutions {
       case 'theme' : $path = get_theme_root() . '/' . $file; break;
       }
 
-      if (file_exists($path)) {
-         @ include_once($path);
-      } else {
-         return('Cannot find file <i>"' . $path . '"</i>');
+      try {
+
+         if (file_exists($path)) {
+
+            @ include_once($path);
+
+            $form = new $class(array('host' => DB_HOST, 'user' => DB_USER, 'hash' => DB_PASSWORD, 'name' => DB_NAME));
+
+            if (!empty($attributes['dump'])) usi_log(__METHOD__ . ':class=' . print_r($form, true));
+
+            $html = $form->process();
+
+         } else {
+
+            $html = 'Cannot find file <i>"' . $path . '"</i>';
+
+         }
+
+      } catch (Exception $e) {
+
       }
 
-      $form = new $class(array('host' => DB_HOST, 'user' => DB_USER, 'hash' => DB_PASSWORD, 'name' =>DB_NAME));
-
-      if (!empty($attributes['dump'])) usi_log(__METHOD__ . ':class=' . print_r($form, true));
-
-      return($form->process());
+     return($html);
 
    } // shortcode();
 

@@ -1,7 +1,5 @@
 <?php // ------------------------------------------------------------------------------------------------------------------------ //
 
-// Error message if cannot find record;
-// REsolve if we can use passed in sql, must resolve the primary key build;
 // Add database insert;
 
 // Add default value for new form;
@@ -24,6 +22,37 @@ Notes:
 - You can remove a field from a form but still keep it in your field list by setting 'type'=>'skip';
 - The name="field-name" value defaults to the field's array name if 'html_name'=>'field-name' isn't given;
 
+Field Options:
+'dbs_field'       
+'dbs_table'       
+'error' (?)
+'html_after' 
+'html_before'
+'html_class'
+'html_error'
+'html_extra'
+'html_id'
+'html_inner' 
+'html_js'
+'html_name' 
+'html_style'
+'html5'
+'label'      
+'max'
+'min'
+'next_page'       
+'notrim'
+'nostriptags'
+'novalidate'
+'old_value'       
+'readonly'
+'required'
+'step'
+'sub_type'       
+'tabindex' (?)
+'type'       
+'value'       
+
 */
 
 class USI_Form_Solutions_Form {
@@ -31,9 +60,11 @@ class USI_Form_Solutions_Form {
    const VERSION = '1.1.2 (2019-10-01)';
 
    protected $action       =  null;
-   protected $connection   =  null;
+   protected $connect      =  null;
    protected $current_page =  null;
    protected $debug        =  null;
+   protected $debug_echo   =  false;
+   protected $debug_text   =  null;
    protected $dbs          =  null;
    protected $error_text   =  null;
    protected $fatal_error  =  null;
@@ -61,9 +92,9 @@ class USI_Form_Solutions_Form {
    protected $queries      =  null;
    protected $target       =  null;
 
-   function __construct($connection) {
-      $this->connection = $connection;
-      $this->debug .= print_r($_REQUEST, true) . PHP_EOL;
+   function __construct($connect) {
+      if (!is_callable($this->debug)) $this->debug = null;
+      $this->connect   = $connect;
       $this->lock_name = $this->prefix_name . 'lock';
       $current_time    = new DateTime();
       $remote_addr     = bin2hex(inet_pton($_SERVER['REMOTE_ADDR']));
@@ -94,27 +125,20 @@ class USI_Form_Solutions_Form {
    } // __construct();
 
    function __destruct() {
-      if ($this->debug) usi_log($this->debug);
-      $this->dbs_close();
    } // __destruct();
 
-   function dbs_close() {
-      if ($this->dbs) {
-         @ $this->dbs->close();
-         $this->dbs = null;
-      }
-   } // dbs_close();
+   function dbs_error($action, $details) {
+      if ($this->debug) call_user_func($this->debug, __METHOD__.':'.__LINE__.':action=' . $action . ':details=' . $details);
+   } // dbs_error();
 
    function dbs_save() {
-      $fields =& $this->pages['test']['fields'];
-      $fields['test']['html'] = 'There was an error';
       $status = $this->dbs_values_update();
 /* update status based on dbs status; */
       return(false);
    } // dbs_save();
 
    function dbs_table_update($page, $queries) {
-      foreach ($page['fields'] as $field_name => & $field) {
+      foreach ($page['fields'] as $field_name => $field) {
          if ('skip' == ($type = $field['type'])) continue;
 // no old value if form is new input;
          if (!empty($field['old_value']) && ($field['value'] != $field['old_value'])) {
@@ -126,53 +150,66 @@ class USI_Form_Solutions_Form {
    } // dbs_table_update();
 
    function dbs_values_get() {
-      if (!$this->dbs) $this->dbs = new mysqli($this->connection['host'], $this->connection['user'], $this->connection['hash'], $this->connection['name']);
-      if ($this->dbs->connect_errno) $this->debug .= 'dbs_values_get:error=' . $this->dbs->connect_error;
+      if (!$this->dbs) {
+         @ $this->dbs = new mysqli($this->connect['host'], $this->connect['user'], $this->connect['hash'], $this->connect['name']);
+         if ($this->dbs->connect_errno) {
+            $this->dbs_error('connect', $this->dbs->connect_error);
+         }
+      }
       foreach ($this->queries as $table => $key) {
+         // IF the SQL is given explicitly then the dbs_save() funcion must be overridden to save the values;
          if ('sql' == $table) {
-            $sql = $table;
+            $sql = $key;
          } else {
             $operator = ' WHERE ';
             $where    = null;
             foreach ($key as $field => $value) {
-               $where   .= $operator . '(`' . $field . '` = "' . $this->dbs->escape_string($value) . '")';
+               $where   .= $operator . '(`' . $field . '` = "' . $this->dbs->escape_string($value()) . '")';
                $operator = ' AND ';
             }
             $sql = 'SELECT * FROM `' . $table . '`' . $where . ' LIMIT 1';
-            $this->debug .= 'dbs_values_get:where=' . $where . PHP_EOL;
+            $this->where[$table] = $where;
          }
-         $this->where[$table] = $where;
-         $this->debug .= 'dbs_values_get:sql=' . $sql . PHP_EOL;
-         $results = $this->dbs->query($sql, MYSQLI_USE_RESULT);
-         if ($this->dbs->errno) $this->debug .= 'dbs_values_get:error=' . $this->dbs->error . PHP_EOL;
-         if ($this->dbs->field_count) {
-            $row = $results->fetch_assoc();
-            $this->debug .= 'dbs_values_get:row=' . print_r($row, true) . PHP_EOL;
-            foreach ($this->pages as $page_name => & $page) {
-               foreach ($page['fields'] as $field_name => & $field) {
-                  if (!empty($field['dbs_field'])) {
-                     $dbs_field = $field['dbs_field'];
-                     if (!empty($row[$dbs_field])) {
-                        switch ($field['sub_type']) {
-                        case 'checkbox':
-                           break;
-                        case 'radio':
-                           break;
-                        case 'hidden':
-                        case 'password':
-                        case 'select':
-                        case 'submit':
-                        case 'text':
-                        case 'textarea':
-                           $field['value'] = $field['old_value'] = $row[$field['dbs_field']];
-                           break;
+         if (!($results = $this->dbs->query($sql, MYSQLI_USE_RESULT))) {
+            $this->dbs_error('query', $this->dbs->error);
+            break;
+         } else {
+            if (!($row = $results->fetch_assoc())) {
+               $this->dbs_error('empty', $sql);
+               @ $results->close();
+               break;
+            } else {
+               if ($this->debug) call_user_func($this->debug, __METHOD__.':'.__LINE__.':row=' . print_r($row, true));
+               // Use & to create references so that the field['value'] can be set;
+               foreach ($this->pages as $page_name => & $page) {
+                  foreach ($page['fields'] as $field_name => & $field) {
+                     if (!empty($field['dbs_field'])) {
+                        $dbs_field = $field['dbs_field'];
+                        if (!empty($row[$dbs_field])) {
+                           switch ($field['sub_type']) {
+                           case 'checkbox':
+                              break;
+                           case 'radio':
+                              break;
+                           case 'hidden':
+                           case 'password':
+                           case 'select':
+                           case 'submit':
+                           case 'text':
+                           case 'textarea':
+                              $field['value'] = $field['old_value'] = $row[$field['dbs_field']];
+                              break;
+                           }
                         }
                      }
                   }
                }
+               // Unset the references to prevent array corruption in the following by value usage;
+               unset($field);
+               unset($page);
             }
+            @ $results->close();
          }
-         @ $results->close();
       }
    } // dbs_values_get();
 
@@ -187,9 +224,9 @@ class USI_Form_Solutions_Form {
       }
       foreach ($this->where as $table => $where) {
          if (!empty($queries[$table])) {
-            $sql = 'UPDATE `' . $table . '` SET ' . $sql . $queries[$table] . $where;
+            $sql = 'UPDATE `' . $table . '` SET ' . $queries[$table] . $where;
             $results = $this->dbs->query($sql);
-            $this->debug .= 'dbs_table_update:sql=' . $sql . ' results=' . $results . PHP_EOL;
+            if ($this->debug) call_user_func($this->debug, __METHOD__.':'.__LINE__.':sql=' . $sql . ' results=' . $results);
          }
       }
    } // dbs_values_update();
@@ -232,7 +269,7 @@ class USI_Form_Solutions_Form {
                   }
                }
             }
-            // Unset the reference forms to prevent array corruption in the following by value usage;
+            // Unset the references to prevent array corruption in the following by value usage;
             unset($field);
             unset($page);
             $next_page = null;
@@ -414,7 +451,13 @@ class USI_Form_Solutions_Form {
 
       }
 
-      return(str_replace(array('{i}', '{n}'), array($i, $n), $this->html_before . $page_before . $html . $page_after . $this->html_after));
+      return(
+         str_replace(
+            array('{i}', '{n}'), 
+            array($i, $n), 
+            $this->html_before . $page_before . $html . $page_after . $this->html_after
+         ) . ($this->debug_echo ? '<!--' . PHP_EOL . $this->debug_text . PHP_EOL . '-->' : '')
+      );
 
    } // process();
 
